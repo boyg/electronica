@@ -87,7 +87,7 @@ Days_Alarm2:    ds 1
 ; In the 8051 we have variables that are 1-bit in size.  
 ; We can use the setb, clr, jb, and jnb instructions with these variables.
 ; This is how you define a 1-bit variable:
-bseg 			     ; (Select bit segment at in bit-addressible part of memory in range 20.0H-2F.7H)
+bseg ; (Select bit segment at in bit-addressible part of memory in range 20.0H-2F.7H)
 
 seconds_flag: dbit 1 ; Set to one in the ISR every time 1000 ms had passed (reserve one bit for seconds_flag)
 alarm_flag:   dbit 1
