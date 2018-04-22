@@ -1,0 +1,340 @@
+0000              1   ; Register definitions
+                  3   $LIST
+0000              5   
+0000              6   ; Write main to starting address
+0000              7   ORG 0000H
+0000 0204E8       8      ljmp Main
+0003              9   
+0003             10   ; Include files
+0321            547   $LIST
+                 13   $LIST
+0321             15   
+0321             16   ; Symbolic constants
+0321             17   CLK     EQU 22118400
+0321             18   BAUD    EQU 115200
+0321             19   BRG_VAL EQU (0x100-(CLK/(16*BAUD)))
+0321             20   
+0321             21   ; LCD hardware wiring
+0321             22   LCD_RS EQU P1.1
+0321             23   LCD_RW EQU P1.2
+0321             24   LCD_E  EQU P1.3
+0321             25   LCD_D4 EQU P3.2
+0321             26   LCD_D5 EQU P3.3
+0321             27   LCD_D6 EQU P3.4
+0321             28   LCD_D7 EQU P3.5
+0321             29   
+0321             30   ; ADC hardware wiring
+0321             31   CE_ADC  EQU P2.0
+0321             32   MY_MOSI EQU P2.1
+0321             33   MY_MISO EQU P2.2
+0321             34   MY_SCLK EQU P2.3
+0321             35   
+0321             36   ; Misc hardware wiring
+0321             37   MODE_BUTTON EQU P2.4
+0321             38   
+0321             39   ; Direct access variables (address 0x30 - 0x7F) used by math32 library
+0030             40   DSEG at 30H
+0030             41   x:      ds 4
+0034             42   y:      ds 4
+0038             43   bcd:    ds 5
+003D             44   Result: ds 2
+003F             45   buffer: ds 30
+005D             46   
+005D             47   mode_flag: ds 1 ; Flag to switch between temperature units. 0 is Celsius, 1 is Fahrenheit
+005E             48   
+0000             49   BSEG
+0000             50   mf: dbit 1 ; Math flag
+0001             51   
+0321             52   CSEG
+0321             53   
+0321             54   ; MACRO: BCD number to PuTTY
+                 55   Send_BCD mac
+                 56   	push ar0
+                 57   	mov r0, %0
+                 58   	lcall ?Send_BCD
+                 59   	pop ar0
+                 60   endmac
+0321             61   
+0321             62   ?Send_BCD:
+0321 C0E0        63            push acc
+0323             64            ; Write most significant digit
+0323 E8          65            mov a, r0
+0324 C4          66            swap a
+0325 540F        67            anl a, #0fh
+0327 4430        68            orl a, #30h
+0329 1204CA      69            lcall PutChar
+032C             70            ; write least significant digit
+032C E8          71            mov a, r0
+032D 540F        72            anl a, #0fh
+032F 4430        73            orl a, #30h
+0331 1204CA      74            lcall PutChar
+0334 D0E0        75            pop acc
+0336 22          76            ret
+0337             77   
+0337             78   ; LCD Strings
+0337             79   newline:
+0337 200D0A00    80       db  ' ', '\r', '\n', 0
+033B             81   
+033B             82   Celsius_Format:
+033B             83   ;       123456789A
+033B 54656D70    84            db 'Temp:    C', 0
+     3A202020
+     204300
+0346             85   
+0346             86   Fahrenheit_Format:
+0346             87   ;       123456789A
+0346 54656D70    88            db 'Temp:    F', 0
+     3A202020
+     204600
+0351             89   
+0351             90   ; SUBROUTINE: Configure the serial port and baud rate
+0351             91   InitSerialPort:
+0351             92       ; Since the reset button bounces, we need to wait a bit before
+0351             93       ; sending messages, otherwise we risk displaying gibberish!
+0351 79DE        94       mov R1, #222
+0353 78A6        95       mov R0, #166
+0355 D8FE        96       djnz R0, $   ; 3 cycles->3*45.21123ns*166=22.51519us
+0357 D9FA        97       djnz R1, $-4 ; 22.51519us*222=4.998ms
+0359             98       
+0359             99       ; Now we can proceed with the configuration
+0359 438780     100            orl     PCON,#0x80
+035C 759852     101            mov     SCON,#0x52
+035F 759B00     102            mov     BDRCON,#0x00
+0362 759AF4     103            mov     BRL,#BRG_VAL
+0365 759B1E     104            mov     BDRCON,#0x1E ; BDRCON=BRR|TBCK|RBCK|SPD;
+0368 22         105       ret
+0369            106   
+0369            107    ; SUBROUTINE: Initialize SPI
+0369            108   INIT_SPI:
+0369 D2A2       109            setb MY_MISO ; Make MISO an input pin
+036B C2A3       110            clr MY_SCLK  ; Mode 0,0 default
+036D 22         111            ret
+036E            112   
+036E            113   ; SUBROUTINE: Check what mode we are in
+036E            114   Check_Mode:
+036E            115            ; Check if button is pressed
+036E 20A418     116            jb MODE_BUTTON, Check_Mode_End
+0371 C002       117            push AR2
+0373 7A7D       117            mov R2, #125
+0375 12000E     117            lcall ?Wait_Milli_Seconds
+0378 D002       117            pop AR2
+037A 20A40C     118            jb MODE_BUTTON, Check_Mode_End
+037D            119   
+037D            120            ; Change the flag and clear it if it overflows
+037D E4         121            clr a
+037E E55D       122            mov a, mode_flag
+0380 2401       123            add a, #01H
+0382 B40202     124            cjne a, #02H, Update_Mode
+0385 7400       125            mov a, #00H
+0387            126   
+0387            127   Update_Mode:
+0387 F55D       128            mov mode_flag, a
+0389            129   
+0389            130   Check_Mode_End:
+0389 22         131            ret
+038A            132   
+038A            133   ; SUBROUTINE: Bit-bang 2 bits, wait, then convert and send
+038A            134   Fetch_Voltage:
+038A C2A0       135            clr CE_ADC
+038C 7801       136            mov R0, #00000001B ; Start bit:1
+038E 1204D3     137            lcall DO_SPI_G
+0391 7880       138            mov R0, #10000000B ; Single ended, read channel 0
+0393 1204D3     139            lcall DO_SPI_G
+0396 E9         140            mov a, R1 ; R1 contains bits 8 and 9
+0397 5403       141            anl a, #00000011B ; We need only the two least significant bits
+0399 F53E       142            mov Result+1, a ; Save result high.
+039B 7855       143            mov R0, #55H ; It doesn't matter what we transmit...
+039D 1204D3     144            lcall DO_SPI_G
+03A0 893D       145            mov Result, R1 ; R1 contains bits 0 to 7. Save result low.
+03A2 D2A0       146            setb CE_ADC
+03A4 C002       147            push AR2
+03A6 7A64       147            mov R2, #100
+03A8 12000E     147            lcall ?Wait_Milli_Seconds
+03AB D002       147            pop AR2
+03AD 1203B1     148            lcall Convert_And_Send
+03B0 22         149            ret
+03B1            150   
+03B1            151   ; SUBROUTINE: Convert temperature, send to PuTTY, and display on LCD
+03B1            152   Convert_And_Send:
+03B1 E55D       153            mov a, mode_flag
+03B3 B40021     154            cjne a, #00H, Skip_Celsius
+03B6            155   
+03B6 120419     156            lcall Volts_To_Celsius
+03B9 C0E0       157            push acc
+03BB 7401       157            mov a, #1
+03BD 14         157            dec a
+03BE 120096     157            lcall ?Set_Cursor_1 ; Select column and row
+03C1 D0E0       157            pop acc
+03C3 C083       158            push dph
+03C5 C082       158            push dpl
+03C7 C0E0       158            push acc
+03C9 90033B     158            mov dptr, #Celsius_Format
+03CC 120089     158            lcall ?Send_Constant_String
+03CF D0E0       158            pop acc
+03D1 D082       158            pop dpl
+03D3 D083       158            pop dph
+03D5 801F       159       sjmp Convert_Finished
+03D7            160   
+03D7            161   Skip_Celsius:
+03D7 120456     162            lcall Volts_To_Fahrenheit
+03DA C0E0       163            push acc
+03DC 7401       163            mov a, #1
+03DE 14         163            dec a
+03DF 120096     163            lcall ?Set_Cursor_1 ; Select column and row
+03E2 D0E0       163            pop acc
+03E4 C083       164            push dph
+03E6 C082       164            push dpl
+03E8 C0E0       164            push acc
+03EA 900346     164            mov dptr, #Fahrenheit_Format
+03ED 120089     164            lcall ?Send_Constant_String
+03F0 D0E0       164            pop acc
+03F2 D082       164            pop dpl
+03F4 D083       164            pop dph
+03F6            165   
+03F6            166   Convert_Finished:
+03F6            167       ; Can't print degree symbol!
+03F6            168       ;Set_Cursor(1,9)
+03F6            169       ;Display_char(#176)
+03F6            170   
+03F6 C000       171            push ar0
+03F8 A838       171            mov r0, bcd
+03FA 120321     171            lcall ?Send_BCD
+03FD D000       171            pop ar0
+03FF C0E0       172            push acc
+0401 7407       172            mov a, #7
+0403 14         172            dec a
+0404 120096     172            lcall ?Set_Cursor_1 ; Select column and row
+0407 D0E0       172            pop acc
+0409 C000       173            push ar0
+040B A838       173            mov r0, bcd
+040D 12009B     173            lcall ?Display_BCD
+0410 D000       173            pop ar0
+0412            174            
+0412 900337     175            mov DPTR, #newline
+0415 1204C0     176            lcall sendstring
+0418            177   
+0418 22         178            ret
+0419            179   
+0419            180   ; SUBROUTINE: Use math32 library to perform volts-to-celsius conversion
+0419            181   ; Celsius = Volts * 410 / 1023 - 273
+0419            182   Volts_To_Celsius:
+0419 853D30     183            mov x+0, Result + 0
+041C 853E31     184            mov x+1, Result + 1
+041F 753200     185            mov x+2, #0x00
+0422 753300     186            mov x+3, #0x00
+0425            187            
+0425 75349A     188            mov y+0, #low (410 % 0x10000) 
+0428 753501     188            mov y+1, #high(410 % 0x10000) 
+042B 753600     188            mov y+2, #low (410 / 0x10000) 
+042E 753700     188            mov y+3, #high(410 / 0x10000) 
+0431 12022B     189            lcall mul32 
+0434 7534FF     190            mov y+0, #low (1023 % 0x10000) 
+0437 753503     190            mov y+1, #high(1023 % 0x10000) 
+043A 753600     190            mov y+2, #low (1023 / 0x10000) 
+043D 753700     190            mov y+3, #high(1023 / 0x10000) 
+0440 1202B8     191            lcall div32
+0443 753411     192            mov y+0, #low (273 % 0x10000) 
+0446 753501     192            mov y+1, #high(273 % 0x10000) 
+0449 753600     192            mov y+2, #low (273 / 0x10000) 
+044C 753700     192            mov y+3, #high(273 / 0x10000) 
+044F 120197     193            lcall sub32
+0452            194   
+0452 1200B1     195            lcall hex2bcd
+0455            196   
+0455 22         197            ret
+0456            198   ; SUBROUTINE: Use math32 library to perform volts-to-fahrenheit conversion
+0456            199   ; Fahrenheit = Celsius * 9 / 5 + 32
+0456            200   Volts_To_Fahrenheit:
+0456 853D30     201            mov x+0, Result + 0
+0459 853E31     202            mov x+1, Result + 1
+045C 753200     203            mov x+2, #0x00
+045F 753300     204            mov x+3, #0x00
+0462            205            
+0462 75349A     206            mov y+0, #low (410 % 0x10000) 
+0465 753501     206            mov y+1, #high(410 % 0x10000) 
+0468 753600     206            mov y+2, #low (410 / 0x10000) 
+046B 753700     206            mov y+3, #high(410 / 0x10000) 
+046E 12022B     207            lcall mul32 
+0471 7534FF     208            mov y+0, #low (1023 % 0x10000) 
+0474 753503     208            mov y+1, #high(1023 % 0x10000) 
+0477 753600     208            mov y+2, #low (1023 / 0x10000) 
+047A 753700     208            mov y+3, #high(1023 / 0x10000) 
+047D 1202B8     209            lcall div32
+0480 753411     210            mov y+0, #low (273 % 0x10000) 
+0483 753501     210            mov y+1, #high(273 % 0x10000) 
+0486 753600     210            mov y+2, #low (273 / 0x10000) 
+0489 753700     210            mov y+3, #high(273 / 0x10000) 
+048C 120197     211            lcall sub32
+048F            212   
+048F 753409     213            mov y+0, #low (9 % 0x10000) 
+0492 753500     213            mov y+1, #high(9 % 0x10000) 
+0495 753600     213            mov y+2, #low (9 / 0x10000) 
+0498 753700     213            mov y+3, #high(9 / 0x10000) 
+049B 12022B     214            lcall mul32
+049E 753405     215            mov y+0, #low (5 % 0x10000) 
+04A1 753500     215            mov y+1, #high(5 % 0x10000) 
+04A4 753600     215            mov y+2, #low (5 / 0x10000) 
+04A7 753700     215            mov y+3, #high(5 / 0x10000) 
+04AA 1202B8     216            lcall div32
+04AD 753420     217            mov y+0, #low (32 % 0x10000) 
+04B0 753500     217            mov y+1, #high(32 % 0x10000) 
+04B3 753600     217            mov y+2, #low (32 / 0x10000) 
+04B6 753700     217            mov y+3, #high(32 / 0x10000) 
+04B9 120176     218            lcall add32
+04BC            219   
+04BC 1200B1     220            lcall hex2bcd
+04BF            221   
+04BF 22         222            ret
+04C0            223   
+04C0            224   ; SUBROUTINE: Send a constant-zero-terminated string using the serial port
+04C0            225   SendString:
+04C0 E4         226       clr A
+04C1 93         227       movc A, @A+DPTR
+04C2 600E       228       jz SendStringDone
+04C4 1204CA     229       lcall PutChar
+04C7 A3         230       inc DPTR
+04C8 80F6       231       sjmp SendString
+04CA            232   
+04CA            233   ; SUBROUTINE: Send a character using the serial port
+04CA            234   PutChar:
+04CA 3099FD     235       jnb TI, PutChar
+04CD C299       236       clr TI
+04CF F599       237       mov SBUF, a
+04D1 22         238       ret    
+04D2            239   
+04D2            240   SendStringDone:
+04D2 22         241       ret ; returns to main, not SendString
+04D3            242   
+04D3            243   ; SUBROUTINE: Perform bit bang SPI 
+04D3            244   DO_SPI_G:
+04D3 7900       245            mov R1, #0 ; Received byte stored in R1
+04D5 7A08       246            mov R2, #8 ; Loop counter (8-bits)
+04D7            247   DO_SPI_G_LOOP:
+04D7 E8         248            mov a, R0 ; Byte to write is in R0
+04D8 33         249            rlc a ; Carry flag has bit to write
+04D9 F8         250            mov R0, a
+04DA 92A1       251            mov MY_MOSI, c
+04DC D2A3       252            setb MY_SCLK ; Transmit
+04DE A2A2       253            mov c, MY_MISO ; Read received bit
+04E0 E9         254            mov a, R1 ; Save received bit in R1
+04E1 33         255            rlc a
+04E2 F9         256            mov R1, a
+04E3 C2A3       257            clr MY_SCLK
+04E5 DAF0       258            djnz R2, DO_SPI_G_LOOP
+04E7 22         259            ret
+04E8            260   
+04E8            261   ; MAIN: Initialize LCD, serial port, and SPI, then continually fetch voltage
+04E8            262   Main:
+04E8 75817F     263       mov SP, #7FH ; Set the stack pointer to the begining of idata
+04EB            264   
+04EB 12005D     265       lcall LCD_4BIT    
+04EE 120351     266       lcall InitSerialPort
+04F1 120369     267       lcall INIT_SPI
+04F4 755D00     268       mov mode_flag, #00H
+04F7            269   
+04F7            270   Loop:
+04F7 12036E     271            lcall Check_Mode
+04FA 12038A     272            lcall Fetch_Voltage
+04FD 80F8       273            sjmp Loop
+04FF            274       
+04FF            275   END
