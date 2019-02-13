@@ -5,3 +5,7 @@ It can also run in autonomous mode, where it follows black lines and carries sma
 
 The script attached packages and routes data from the chosen device to a microcontroller through a serial port.
 The microcontroller is part of a transmitter which uses the magnetic field to communicate with the robot.
+
+
+<img src="https://i.imgur.com/LRoTWQF.jpg" width="420"> 
+<img src="https://imgur.com/a/oOdas5F" width="420">
