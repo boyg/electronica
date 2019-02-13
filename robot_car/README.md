@@ -8,4 +8,4 @@ The microcontroller is part of a transmitter which uses the magnetic field to co
 
 
 <img src="https://i.imgur.com/LRoTWQF.jpg" width="420"> 
-<img src="https://imgur.com/a/oOdas5F" width="420">
+<img src="https://imgur.com/a/oOdas5F.jpg" width="420">
