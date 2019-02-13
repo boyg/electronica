@@ -6,9 +6,12 @@ It can also run in autonomous mode, where it follows black lines and carries sma
 The script attached packages and routes data from the chosen device to a microcontroller through a serial port.
 The microcontroller is part of a transmitter which uses the magnetic field to communicate with the robot.
 
+<img src="https://i.imgur.com/xmrDSYX.jpg" width="420">
+
 ## Powerfist
 The Powerfist is a handheld accelerometer that allows the user to control the car using hand movements.
 An LED matrix is attached to the other hand to indicate the direction that the car is being told to move in.
+
 <img src="https://i.imgur.com/LRoTWQF.jpg" width="320"> <img src="https://i.imgur.com/bUQW2AY.jpg" width="320">
 
 ## Autonomous mode demonstration
