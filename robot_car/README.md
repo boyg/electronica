@@ -1,6 +1,6 @@
 # Magnetically-controlled autonomous robot
 
-This battery-run robot car is operated with a PS4 controller or the Powerfist,
+This battery-run robot car is operated with a PS4 controller or the Powerfist.
 It can also run in autonomous mode, where it follows black lines and carries small objects.
 
 The script attached packages and routes data from the chosen device to a microcontroller through a serial port.
